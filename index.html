@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>销售潜能评估测试</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+    <style>
+        /* 基础样式 */
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 850px; margin: 30px auto; padding: 30px; background-color: #f8f9fa; color: #343a40; }
+        h2 { text-align: center; color: #d9534f; margin-bottom: 25px; border-bottom: 3px solid #d9534f; padding-bottom: 10px; }
+        .instruction { text-align: center; margin-bottom: 30px; font-size: 1.1em; color: #5cb85c; font-weight: bold; }
+        
+        /* 问题组样式 */
+        .question-group { margin-bottom: 25px; padding: 18px; border: 1px solid #ccc; border-radius: 10px; background-color: white; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+        .question-text { font-weight: 600; margin-bottom: 15px; font-size: 1em; color: #292b2c; }
+        
+        /* 量表样式 */
+        .likert-scale { display: flex; justify-content: space-between; align-items: center; }
+        /* 调整选项宽度以容纳描述语 */
+        .likert-scale label { flex: 1; text-align: center; cursor: pointer; padding: 5px 0; border-radius: 4px; min-width: 15%; margin: 0 2px; }
+        input[type="radio"] { display: none; }
+        input[type="radio"] + span { display: block; padding: 10px 5px; border: 2px solid #ced4da; border-radius: 5px; transition: all 0.2s; font-size: 0.9em; }
+        input[type="radio"]:checked + span { background-color: #d9534f; color: white; border-color: #d9534f; }
+        
+        /* 测谎题/效度题的特殊标记 */
+        .validity-item { border-left: 5px solid #ffc107; }
+
+        #submit-button { display: block; width: 100%; padding: 20px; margin-top: 40px; font-size: 1.3em; background-color: #5cb85c; color: white; border: none; border-radius: 8px; cursor: pointer; transition: background-color 0.2s; }
+        #submit-button:hover { background-color: #449d44; }
+        
+        /* 结果样式 */
+        #results { margin-top: 50px; padding: 35px; background-color: #f0ad4e1a; border-radius: 10px; display: none; border: 2px solid #f0ad4e; }
+        h3 { color: #f0ad4e; border-bottom: 2px solid #f0ad4e; padding-bottom: 10px; margin-bottom: 20px; }
+        .result-score { font-size: 2.5em; font-weight: bold; color: #d9534f; text-align: center; margin: 15px 0; }
+        .analysis p { line-height: 1.8; margin-bottom: 15px; background-color: #ffffff; padding: 12px; border-left: 5px solid #d9534f; border-radius: 5px; }
+        .radar-chart { width: 100%; height: 400px; margin: 20px auto; }
+
+        .validity-warning { font-weight: bold; padding: 10px 0; border-top: 1px dashed #ffc107; margin-top: 15px; }
+        .low-validity { color: #dc3545; }
+        .high-validity { color: #5cb85c; }
+        .potential-level { text-align: center; font-size: 1.8em; margin: 15px 0; padding: 10px; border: 2px solid #d9534f; border-radius: 5px; }
+
+    </style>
+</head>
+<body>
+
+    <h2>销售潜能评估测试 (SPAT)</h2>
+    <div class="instruction">
+        请根据您通常的反应来作答： 1 = **完全不符合** &nbsp;|&nbsp; 5 = **完全符合**
+    </div>
+
+    <form id="sales-quiz"></form>
+
+    <button id="submit-button">完成评估并查看销售潜能指数</button>
+
+    <div id="results">
+        <h3>销售潜能评估结果</h3>
+        <div id="validity-feedback"></div> <p>您的综合销售潜力指数为 (满分 100 分)：</p>
+        <div class="result-score"><span id="total-score">0</span> / 100</div>
+        <div class="potential-level" id="potential-level-text"></div>
+
+
+        <div class="analysis">
+            <h4>关键维度能力分布：</h4>
+            <div class="radar-chart">
+                 <canvas id="salesRadarChart"></canvas>
+            </div>
+            
+            <h4>关键维度分析：</h4>
+            <div id="analysis-text"></div>
+            
+            <h4>🎯 销售潜能发展建议：</h4>
+            <div id="development-advice" class="analysis"></div>
+        </div>
+        
+    </div>
+
+    <script>
+        // --- 1. 销售潜能问题数据结构 (27 题，25个OCEAN + 2个效度题) ---
+        // P = Positive (正向计分), R = Reverse (反向计分), V = Validity (效度题)
+        // 维度: C=尽责性, E=外向性, N=神经质(低分好), A=宜人性, O=开放性, V=效度
+        const salesQuestions = [
+            // 尽责性 (C) - 5 题
+            { id: 'q1', text: "在开始一个新项目前，我会花大量时间整理资料和制定详细的步骤。", dimension: 'C', type: 'P' },
+            { id: 'q2', text: "我经常在最后一刻才开始准备任务。", dimension: 'C', type: 'R' },
+            { id: 'q3', text: "我会将精力集中在完成预定的每日目标上，而不是随性而为。", dimension: 'C', type: 'P' },
+            { id: 'q4', text: "我喜欢保持一个整洁有序的工作环境。", dimension: 'C', type: 'P' },
+            { id: 'q5', text: "我很难坚持长期承诺，容易半途而废。", dimension: 'C', type: 'R' },
+
+            // 外向性 (E) - 5 题
+            { id: 'q6', text: "在聚会上，我总是第一个主动认识新朋友的人。", dimension: 'E', type: 'P' },
+            { id: 'q7', text: "相比于打电话，我更倾向于发邮件来处理复杂的事务。", dimension: 'E', type: 'R' },
+            { id: 'q8', text: "我喜欢在团队中成为意见的发表者和焦点。", dimension: 'E', type: 'P' },
+            { id: 'q9', text: "我经常发现自己独自一人时比和很多人在一起时更有活力。", dimension: 'E', type: 'R' },
+            { id: 'q10', text: "我乐于向他人展示并讲述我的想法和观点。", dimension: 'E', type: 'P' },
+
+            // 神经质 (N) - 5 题 (低 N = 稳定 = 高潜力)
+            { id: 'q11', text: "当事情没有按计划进行时，我通常能很快平静下来。", dimension: 'N', type: 'R' }, // 低 N 特质
+            { id: 'q12', text: "我常常因为担心未来或小失误而感到紧张不安。", dimension: 'N', type: 'P' }, // 高 N 特质
+            { id: 'q13', text: "在压力很大的情况下，我的思考依然清晰、不受干扰。", dimension: 'N', type: 'R' },
+            { id: 'q14', text: "我对别人的批评或拒绝非常敏感，会长时间感到沮丧。", dimension: 'N', type: 'P' },
+            { id: 'q15', text: "我很容易从一次挫折中恢复过来，将其视为经验。", dimension: 'N', type: 'R' },
+
+            // 宜人性 (A) - 5 题
+            { id: 'q16', text: "我擅长从别人的角度看待问题，理解他们的感受。", dimension: 'A', type: 'P' },
+            { id: 'q17', text: "我喜欢在讨论中清楚地表明我的反对意见。", dimension: 'A', type: 'R' },
+            { id: 'q18', text: "当有人需要帮助时，我通常会放下自己的事情去帮忙。", dimension: 'A', type: 'P' },
+            { id: 'q19', text: "我发现自己很难对别人说“不”，即使这会让我感到不便。", dimension: 'A', type: 'P' }, // 宜人性过高可能影响谈判
+            { id: 'q20', text: "我通常相信陌生人，并认为他们是善意的。", dimension: 'A', type: 'P' },
+
+            // 开放性 (O) - 5 题
+            { id: 'q21', text: "我热衷于探索和尝试与我专业领域完全不相关的知识。", dimension: 'O', type: 'P' },
+            { id: 'q22', text: "面对突发的新要求，我能迅速调整方法和思路。", dimension: 'O', type: 'P' },
+            { id: 'q23', text: "我倾向于坚持使用一套固定的、被证明有效的做事方式。", dimension: 'O', type: 'R' },
+            { id: 'q24', text: "我很少花时间去思考那些抽象的、非实际性的概念。", dimension: 'O', type: 'R' },
+            { id: 'q25', text: "我喜欢接触并采纳来自不同文化和背景的观点。", dimension: 'O', type: 'P' },
+            
+            // 效度题 (V) - 2 题 (测谎题)
+            { id: 'v1', text: "我从未对任何人产生过任何恶意的想法或妒忌。", dimension: 'V', type: 'R' }, 
+            { id: 'v2', text: "我总是在任何事情上都感到极度的不快乐和痛苦。", dimension: 'V', type: 'P' }, 
+        ];
+
+        // --- 2. 初始化和 DOM 元素 ---
+        let scores = { C: 0, E: 0, N: 0, A: 0, O: 0, V: 0 }; 
+        const dimCounts = { C: 0, E: 0, N: 0, A: 0, O: 0, V: 0 };
+        
+        const form = document.getElementById('sales-quiz');
+        const submitButton = document.getElementById('submit-button');
+        const resultsDiv = document.getElementById('results');
+        const totalScoreSpan = document.getElementById('total-score');
+        const analysisText = document.getElementById('analysis-text');
+        const validityFeedbackDiv = document.getElementById('validity-feedback');
+        const potentialLevelText = document.getElementById('potential-level-text');
+        const developmentAdviceDiv = document.getElementById('development-advice');
+
+        let radarChartInstance = null; 
+
+        // 选项描述语
+        const likertDescriptions = [
+            { value: 1, text: "完全不符合" },
+            { value: 2, text: "不太符合" },
+            { value: 3, text: "中立/不确定" },
+            { value: 4, text: "比较符合" },
+            { value: 5, text: "完全符合" }
+        ];
+
+        // --- 3. 动态渲染问题 (使用描述语) ---
+        function renderQuestions() {
+            form.innerHTML = '';
+            salesQuestions.forEach((q, index) => {
+                if (!dimCounts[q.dimension]) dimCounts[q.dimension] = 0;
+                dimCounts[q.dimension]++;
+
+                const qGroup = document.createElement('div');
+                qGroup.className = 'question-group' + (q.dimension === 'V' ? ' validity-item' : '');
+                qGroup.innerHTML = `<div class="question-text">${index + 1}. ${q.text}</div>`;
+
+                const scaleDiv = document.createElement('div');
+                scaleDiv.className = 'likert-scale';
+
+                likertDescriptions.forEach(option => {
+                    const inputId = `${q.id}-${option.value}`;
+                    scaleDiv.innerHTML += `
+                        <label for="${inputId}">
+                            <input type="radio" id="${inputId}" name="${q.id}" value="${option.value}" 
+                                data-dimension="${q.dimension}" data-type="${q.type}">
+                            <span>${option.value} (${option.text})</span>
+                        </label>
+                    `;
+                });
+                
+                qGroup.appendChild(scaleDiv);
+                form.appendChild(qGroup);
+            });
+        }
+
+        // --- 4. 计分和潜力指数计算 (与原代码相同) ---
+        function calculateScore() {
+            scores = { C: 0, E: 0, N: 0, A: 0, O: 0, V: 0 };
+            
+            const allRadios = form.querySelectorAll('input[type="radio"]:checked');
+
+            if (allRadios.length !== salesQuestions.length) {
+                alert("请回答所有问题后，再提交评估！");
+                return false;
+            }
+
+            allRadios.forEach(radio => {
+                const rawValue = parseInt(radio.value); 
+                const dimension = radio.dataset.dimension;
+                const type = radio.dataset.type;
+
+                let scoreValue = rawValue;
+
+                if (type === 'R') {
+                    scoreValue = 6 - rawValue; 
+                }
+
+                if (dimension === 'N') {
+                    scores[dimension] += (6 - scoreValue); 
+                } else if (dimension === 'V') {
+                    scores[dimension] += scoreValue; 
+                }
+                else {
+                    scores[dimension] += scoreValue;
+                }
+            });
+
+            return true;
+        }
+
+        // --- 5. 结果展示 ---
+        function displayResults() {
+            if (!calculateScore()) return;
+
+            resultsDiv.style.display = 'block';
+            analysisText.innerHTML = '';
+            developmentAdviceDiv.innerHTML = '';
+            validityFeedbackDiv.innerHTML = ''; 
+            
+            resultsDiv.scrollIntoView({ behavior: 'smooth' });
+
+            const maxScorePerDim = 5 * 5; 
+            const maxTotalScore = maxScorePerDim * 5; 
+            let totalRawScore = 0;
+            let fullAnalysis = [];
+            
+            const dimNames = { C: '尽责性/驱动力', E: '外向性/社交', N: '抗压能力/稳定度', A: '宜人性/人际理解', O: '开放性/适应力' };
+            
+            const radarChartData = {
+                labels: [],
+                percentages: []
+            };
+
+            // 循环生成分析文本，并计算总得分
+            for (const dim in scores) {
+                if (dim === 'V') continue;
+
+                const dimScore = scores[dim];
+                totalRawScore += dimScore;
+
+                const percentage = Math.round((dimScore / maxScorePerDim) * 100);
+                const { name, advice } = generateAnalysisText(dim, percentage);
+                
+                fullAnalysis.push(`<p><strong>${name} (${percentage}%)：</strong>${advice}</p>`);
+                
+                radarChartData.labels.push(dimNames[dim]);
+                radarChartData.percentages.push(percentage);
+            }
+            
+            // 计算最终潜能指数 (标准化到 100 分)
+            const salesPotentialIndex = Math.round((totalRawScore / maxTotalScore) * 100);
+            
+            totalScoreSpan.textContent = salesPotentialIndex;
+            analysisText.innerHTML = fullAnalysis.join('');
+            
+            // 结果赋予含义
+            interpretTotalScore(salesPotentialIndex);
+            interpretValidityScore(scores.V); 
+            // 给出总的销售潜能建议
+            generateSalesAdvice(scores, maxScorePerDim);
+
+            // 绘制雷达图
+            drawRadarChart(radarChartData);
+        }
+        
+        // --- 6. 辅助函数（销售潜能专业分析） (与原代码相同) ---
+        function generateAnalysisText(dimCode, percentage) {
+             let name = '';
+            let advice = '';
+            const isHigh = percentage >= 70;
+            const isLow = percentage <= 30;
+
+            switch (dimCode) {
+                case 'C': 
+                    name = '尽责性/驱动力';
+                    if (isHigh) advice = "**高潜力**：您具备优秀的规划和执行力，能够持之以恒地跟进复杂的销售流程，是实现业绩目标的可靠保障。";
+                    else if (isLow) advice = "**需加强**：您可能缺乏结构化的工作习惯，需要通过外部工具或流程来增强自律性，避免错失销售机会。";
+                    else advice = "**中等**：您的目标感较强，但在面对长期或复杂的销售项目时，可能需要额外的提醒和监督。";
+                    break;
+                case 'E': 
+                    name = '外向性/社交能力';
+                    if (isHigh) advice = "**高潜力**：您积极主动、精力充沛，热衷于社交和人际互动，能够迅速建立并扩大客户关系网。";
+                    else if (isLow) advice = "**需加强**：您可能偏爱独立工作，需克服主动社交障碍，多参与外部活动，以提升客户的开发效率。";
+                    else advice = "**中等**：您能适应社交环境，但在需要长时间或高强度社交投入的岗位上，可能感到疲劳。";
+                    break;
+                case 'N': 
+                    name = '抗压能力/情绪稳定度';
+                    if (isHigh) advice = "**高潜力**：您的情绪稳定度极高，能够从容应对客户的拒绝和业绩压力，是长期从事销售工作的关键优势。";
+                    else if (isLow) advice = "**需关注**：您对压力比较敏感，容易感到焦虑。需要建立健康的心理防线，以防负面情绪影响工作表现。";
+                    else advice = "**中等**：您具备一定的抗压能力，但在遭遇重大挫折时，需要时间来调整心态。";
+                    break;
+                case 'A': 
+                    name = '宜人性/客户理解力';
+                    if (percentage >= 80) advice = "**需平衡**：您的宜人性极高，虽然能迅速获得客户信任，但可能在关键谈判中过于妥协，影响利润空间。";
+                    else if (percentage >= 50) advice = "**理想范围**：您善于倾听和理解客户需求，能够建立长期的合作关系，同时保持适当的专业界限。";
+                    else advice = "**需加强**：您的竞争性较强，虽然擅长谈判，但可能因缺乏同理心而难以建立客户的深度信任。";
+                    break;
+                case 'O': 
+                    name = '开放性/适应能力';
+                    if (isHigh) advice = "**高潜力**：您思维灵活，乐于接受新知和新销售模式，能够快速适应不断变化的市场和产品线。";
+                    else if (isLow) advice = "**需关注**：您可能偏爱传统和固定的销售流程，面对创新产品或颠覆性市场变化时，适应速度可能较慢。";
+                    else advice = "**中等**：您对新方法持开放态度，但倾向于在验证有效性后才采纳。";
+                    break;
+            }
+
+            return { name, advice };
+        }
+
+        // **新增：总分含义**
+        function interpretTotalScore(index) {
+            let levelText = '';
+            let color = '';
+
+            if (index >= 75) {
+                levelText = "★★★★★ 极高销售潜能";
+                color = "#449d44";
+            } else if (index >= 60) {
+                levelText = "★★★★☆ 高销售潜能";
+                color = "#5cb85c";
+            } else if (index >= 45) {
+                levelText = "★★★☆☆ 中等销售潜能";
+                color = "#f0ad4e";
+            } else {
+                levelText = "★★☆☆☆ 较低销售潜能";
+                color = "#dc3545";
+            }
+
+            potentialLevelText.textContent = levelText;
+            potentialLevelText.style.borderColor = color;
+            potentialLevelText.style.color = color;
+        }
+
+
+        // **新增：测谎分/效度分解释**
+        function interpretValidityScore(score) {
+            let feedback = '';
+            const MAX_VALIDITY_SCORE = 10; 
+            
+            if (score >= 9) { 
+                feedback = `
+                    <div class="validity-warning low-validity">
+                        <strong>⚠️ 效度警告：</strong>您的效度得分较高 (得分 ${score}/${MAX_VALIDITY_SCORE} 分)，结果可能存在**过度美化或夸大**。请对结果持保留态度。
+                    </div>
+                `;
+            } else if (score <= 2) { 
+                 feedback = `
+                    <div class="validity-warning low-validity">
+                        <strong>⚠️ 效度警告：</strong>您的效度得分极低 (得分 ${score}/${MAX_VALIDITY_SCORE} 分)，可能提示**随机作答**或**过度贬低**自我，请谨慎使用此评估结果。
+                    </div>
+                `;
+            } else {
+                feedback = `
+                    <div class="validity-warning high-validity">
+                        <strong>✅ 测试结果有效：</strong>您的回答客观，评估结果具有较高的参考价值。
+                    </div>
+                `;
+            }
+            validityFeedbackDiv.innerHTML = feedback;
+        }
+
+        // **新增：综合销售潜能发展建议**
+        function generateSalesAdvice(scores, maxScorePerDim) {
+            let adviceHtml = '<ul>';
+            const dimCodes = ['C', 'E', 'N', 'A', 'O'];
+
+            dimCodes.forEach(dim => {
+                const percentage = Math.round((scores[dim] / maxScorePerDim) * 100);
+                const { name } = generateAnalysisText(dim, percentage);
+
+                if (percentage <= 40) { // 低于中等水平，需要针对性提升
+                    adviceHtml += `<li><strong>提升${name} (得分 ${percentage}%)：</strong>建议采取的具体行动，以弥补当前维度的不足。</li>`;
+                } else if (percentage >= 80 && dim === 'A') {
+                    // 特别针对宜人性过高 (可能过于妥协) 的风险
+                    adviceHtml += `<li><strong>平衡${name} (得分 ${percentage}%)：</strong>注意在谈判中保持专业坚定性，避免因同理心过重而牺牲公司利益。</li>`;
+                }
+            });
+
+            if (adviceHtml === '<ul>') {
+                adviceHtml += '<li>恭喜，您在所有关键潜能维度上表现均衡或优秀，请继续保持优势。</li>';
+            }
+            
+            adviceHtml += '</ul>';
+            developmentAdviceDiv.innerHTML = adviceHtml;
+        }
+
+        // --- 7. 绘制雷达图函数 (与原代码相同) ---
+        function drawRadarChart(data) {
+            const ctx = document.getElementById('salesRadarChart').getContext('2d');
+            
+            if (radarChartInstance) {
+                radarChartInstance.destroy();
+            }
+            // 绘制雷达图 
+            radarChartInstance = new Chart(ctx, {
+                type: 'radar',
+                data: {
+                    labels: data.labels,
+                    datasets: [{
+                        label: '您的潜能分布',
+                        data: data.percentages,
+                        backgroundColor: 'rgba(217, 83, 79, 0.4)', 
+                        borderColor: 'rgba(217, 83, 79, 1)',
+                        pointBackgroundColor: 'rgba(217, 83, 79, 1)',
+                        pointBorderColor: '#fff',
+                        pointHoverBackgroundColor: '#fff',
+                        pointHoverBorderColor: 'rgba(217, 83, 79, 1)'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        r: {
+                            angleLines: { display: true, color: '#e9ecef' },
+                            grid: { color: '#e9ecef' },
+                            pointLabels: { font: { size: 14, weight: 'bold' }, color: '#343a40' },
+                            suggestedMin: 0,
+                            suggestedMax: 100, 
+                            ticks: { stepSize: 20, backdropColor: '#f8f9fa' }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        title: { display: true, text: '五大关键销售胜任力分布图', font: { size: 16 } }
+                    }
+                }
+            });
+        }
+
+        // --- 8. 绑定事件和启动 ---
+        submitButton.addEventListener('click', displayResults);
+        renderQuestions();
+    </script>
+</body>
+</html>
